@@ -24,3 +24,7 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.bg-blue-600 {
+  background-color: #2563eb; /* tailwind's blue-600 */
+}
