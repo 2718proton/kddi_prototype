@@ -1,12 +1,19 @@
 import { supabase } from "@/lib/supabaseClient";
 import StationMap from "@/components/StationMap";
 
+type StationData = {
+	id: string;
+	name: string;
+	lat: number;
+	lon: number;
+};
+
 export default async function HomePage() {
 	const { data: stations, error } = await supabase.from("stations").select("*");
-	console.log('Stations:', stations);
+	
 	if (error) throw new Error(error.message);
 
-	const formatted = stations!.map((s) => ({
+	const formatted = (stations as StationData[]).map((s) => ({
 		id: s.id,
 		name: s.name,
 		location: { lat: s.lat, lon: s.lon },

@@ -12,11 +12,6 @@ type Station = {
 };
 
 export default function StationMap({ stations }: { stations: Station[] }) {
-
-	useEffect(() => {
-  		console.log('Stations:', stations); // Debug
-	}, [stations]);
-
 	const mapContainer = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
@@ -49,15 +44,6 @@ export default function StationMap({ stations }: { stations: Station[] }) {
 		});
 
 		return () => map.remove();
-	}, [stations]);
-
-	useEffect(() => {
-		stations.forEach(async (station) => {
-			const res = await fetch(`/api/unitCount?station_id=${station.id}`);
-			const { count } = await res.json();
-			const el = document.getElementById(`units-${station.id}`);
-			if (el) el.innerText = String(count);
-		});
 	}, [stations]);
 
 	return <div ref={mapContainer} className="w-full h-[80vh] rounded-lg border" />;
