@@ -19,19 +19,24 @@ export default function StationMap({ stations }: { stations: Station[] }) {
 
 		const map = new maplibre.Map({
 			container: mapContainer.current,
-			style: "https://demotiles.maplibre.org/style.json",
-			center: [140.87, 38.26], // Sendai
+			style: `https://api.maptiler.com/maps/jp-mierune-streets/style.json?key=${process.env.NEXT_PUBLIC_MAPTILER_KEY}`,
+			center: [140.87, 38.26],
 			zoom: 10,
 		});
 
 		stations.forEach(async (station) => {
 			const res = await fetch(`/api/unitCount?station_id=${station.id}`);
 			const { count } = await res.json();
-			
-			const markerEl = document.createElement("div");
-			markerEl.className = "bg-blue-600 w-4 h-4 rounded-full border border-white cursor-pointer";
 
-			new maplibre.Marker({ element: markerEl })
+			// ---- Marker Element using public/pin.jpg ----
+			const markerEl = document.createElement("img");
+			markerEl.src = "/pin.jpg";
+			markerEl.style.width = "28px";
+			markerEl.style.height = "28px";
+			markerEl.style.objectFit = "contain";
+			markerEl.style.cursor = "pointer";
+
+			new maplibre.Marker({ element: markerEl, anchor: "bottom" }) // bottom anchor makes pin point sit at location
 				.setLngLat([station.location.lon, station.location.lat])
 				.setPopup(
 					new maplibre.Popup({ offset: 25 }).setHTML(`
@@ -39,8 +44,8 @@ export default function StationMap({ stations }: { stations: Station[] }) {
 						<p>Battery units: ${count}</p>
 						<a href="/station/${station.id}" class="text-blue-500 underline">See more</a>
 					`)
-			)
-			.addTo(map);
+				)
+				.addTo(map);
 		});
 
 		return () => map.remove();
