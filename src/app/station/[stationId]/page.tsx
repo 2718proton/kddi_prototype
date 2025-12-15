@@ -16,6 +16,7 @@ export default function StationPage({ params }: Props) {
 	const [batteriesData, setBatteriesData] = useState<any[]>([]);
 	const [requestingAll, setRequestingAll] = useState(false);
 	const [requestingIds, setRequestingIds] = useState<Set<number>>(new Set());
+	const [refreshKeys, setRefreshKeys] = useState<Record<number, number>>({});
 
 	useEffect(() => {
 		params.then(p => {
@@ -52,7 +53,24 @@ export default function StationPage({ params }: Props) {
 		setBatteriesData(data);
 	}
 
-	async function requestBattery(batteryId: number) {
+	async function reloadSingleBattery(batteryId: number, index: number) {
+		const res = await fetch(`/api/batteryData?station_id=${stationId}&battery_id=${batteryId}`);
+		if (res.ok) {
+			const data = await res.json();
+			setBatteriesData(prev => {
+				const updated = [...prev];
+				updated[index] = data;
+				return updated;
+			});
+			// Update refresh key for this battery's graph
+			setRefreshKeys(prev => ({
+				...prev,
+				[batteryId]: (prev[batteryId] || 0) + 1
+			}));
+		}
+	}
+
+	async function requestBattery(batteryId: number, index: number) {
 		setRequestingIds(prev => new Set(prev).add(batteryId));
 		try {
 			await fetch("/api/requestBattery", {
@@ -60,6 +78,11 @@ export default function StationPage({ params }: Props) {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ battery_id: batteryId }),
 			});
+			
+			// Wait 3 seconds for device to respond, then reload this battery only
+			setTimeout(() => {
+				reloadSingleBattery(batteryId, index);
+			}, 3000);
 		} catch (error) {
 			console.error("Request failed:", error);
 		}
@@ -80,6 +103,25 @@ export default function StationPage({ params }: Props) {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ station_id: stationId }),
 			});
+			
+			// Wait 3 seconds for devices to respond, then reload ALL batteries
+			setTimeout(async () => {
+				const data = await Promise.all(
+					batteries.map(async (b: any) => {
+						const res = await fetch(`/api/batteryData?station_id=${stationId}&battery_id=${b.id}`);
+						if (res.ok) return await res.json();
+						return null;
+					})
+				);
+				setBatteriesData(data);
+				
+				// Update refresh keys for all graphs
+				const newKeys: Record<number, number> = {};
+				batteries.forEach(b => {
+					newKeys[b.id] = (refreshKeys[b.id] || 0) + 1;
+				});
+				setRefreshKeys(newKeys);
+			}, 3000);
 		} catch (error) {
 			console.error("Request all failed:", error);
 		}
@@ -127,7 +169,7 @@ export default function StationPage({ params }: Props) {
 										<p className="text-xs text-gray-500">ID: {battery.id}</p>
 									</div>
 									<button
-										onClick={() => requestBattery(battery.id)}
+										onClick={() => requestBattery(battery.id, i)}
 										disabled={isRequesting}
 										className="px-3 py-1 text-sm bg-blue-500 text-white rounded font-medium hover:bg-blue-600 disabled:bg-gray-400 transition-colors"
 									>
@@ -135,37 +177,40 @@ export default function StationPage({ params }: Props) {
 									</button>
 								</div>
 
-								{/* Data */}
-								{Object.keys(data).length > 0 ? (
-									<div>
-										{Object.entries(data).map(([field, value]) => (
-											<div key={field} className="flex justify-between py-1">
-												<span className="text-sm">{field}:</span>
-												<span className="font-semibold">
-													{typeof value === 'number' ? value.toFixed(2) : String(value)}
-												</span>
-											</div>
-										))}
+								{/* Data - Always show all 3 fields */}
+								<div>
+									<div className="flex justify-between py-1">
+										<span className="text-sm">temperature:</span>
+										<span className={`font-semibold ${data.temperature !== undefined && data.temperature !== null ? '' : 'text-gray-400'}`}>
+											{data.temperature !== undefined && data.temperature !== null
+												? data.temperature.toFixed(2)
+												: 'N/A'
+											}
+										</span>
 									</div>
-								) : (
-									<div>
-										<div className="flex justify-between py-1">
-											<span className="text-sm">temperature:</span>
-											<span className="font-semibold text-gray-400">NaN</span>
-										</div>
-										<div className="flex justify-between py-1">
-											<span className="text-sm">voltage:</span>
-											<span className="font-semibold text-gray-400">NaN</span>
-										</div>
-										<div className="flex justify-between py-1">
-											<span className="text-sm">resistance:</span>
-											<span className="font-semibold text-gray-400">NaN</span>
-										</div>
+									<div className="flex justify-between py-1">
+										<span className="text-sm">voltage:</span>
+										<span className={`font-semibold ${data.voltage !== undefined && data.voltage !== null ? '' : 'text-gray-400'}`}>
+											{data.voltage !== undefined && data.voltage !== null
+												? data.voltage.toFixed(2)
+												: 'N/A'
+											}
+										</span>
 									</div>
-								)}
+									<div className="flex justify-between py-1">
+										<span className="text-sm">resistance:</span>
+										<span className={`font-semibold ${data.resistance !== undefined && data.resistance !== null ? '' : 'text-gray-400'}`}>
+											{data.resistance !== undefined && data.resistance !== null
+												? data.resistance.toFixed(2)
+												: 'N/A'
+											}
+										</span>
+									</div>
+								</div>
 
 								{/* Graph */}
 								<BatteryGraph
+									key={`${battery.id}-${refreshKeys[battery.id] || 0}`}
 									stationId={stationId}
 									batteryId={String(battery.id)}
 									batteryName={battery.name}

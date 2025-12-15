@@ -15,34 +15,32 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-        // Build query with station_id if provided
-        let filters = `
-            |> filter(fn: (r) => r["_measurement"] == "measurement")
-            |> filter(fn: (r) => r["battery_id"] == "${battery_id}")
-        `;
-        
-        if (station_id) {
-            filters += `|> filter(fn: (r) => r["station_id"] == "${station_id}")`;
-        }
-
         const fluxQuery = `
-            from(bucket: "${bucket}")
-                |> range(start: -24h)
-                ${filters}
-                |> last()
+            import "experimental/iox"
+            
+            iox.sql(
+              bucket: "${bucket}",
+              query: "SELECT * FROM measurement WHERE battery_id = '${battery_id}' AND station_id = '${station_id}' AND time >= now() - interval '1 hour' ORDER BY time DESC LIMIT 1"
+            )
         `;
 
         console.log('Query:', fluxQuery);
 
         const latest: Record<string, any> = {};
 
-        // Wrap in promise to ensure we wait for completion
         await new Promise<void>((resolve, reject) => {
             queryApi.queryRows(fluxQuery, {
                 next(row: string[], tableMeta: any) {
                     const o = tableMeta.toObject(row);
-                    console.log('Found:', o._field, '=', o._value);
-                    latest[o._field] = o._value;
+                    console.log('Found:', o);
+                    
+                    // Only include actual data fields (not metadata)
+                    const dataFields = ['temperature', 'voltage', 'resistance', 'current'];
+                    dataFields.forEach(field => {
+                        if (o[field] !== null && o[field] !== undefined && o[field] !== '') {
+                            latest[field] = o[field];
+                        }
+                    });
                 },
                 error(error: Error) {
                     console.error('InfluxDB error:', error);

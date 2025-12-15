@@ -6,8 +6,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const battery_id = searchParams.get("battery_id");
     const station_id = searchParams.get("station_id");
-    const range = searchParams.get("range") || "1h";  // default 1 hour
-    const field = searchParams.get("field") || "temperature";  // which field to get
+    const range = searchParams.get("range") || "1h";
+    const field = searchParams.get("field") || "temperature";
 
     if (!battery_id) {
         return NextResponse.json(
@@ -17,38 +17,31 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-        let filters = `
-            |> filter(fn: (r) => r["_measurement"] == "measurement")
-            |> filter(fn: (r) => r["battery_id"] == "${battery_id}")
-            |> filter(fn: (r) => r["_field"] == "${field}")
-        `;
-        
-        if (station_id) {
-            filters += `|> filter(fn: (r) => r["station_id"] == "${station_id}")`;
-        }
-
-        // NO |> last() - we want ALL data points for the graph
+        // Wrap SQL in Flux using iox.sql()
         const fluxQuery = `
-            from(bucket: "${bucket}")
-                |> range(start: -${range})
-                ${filters}
-                |> sort(columns: ["_time"])
+            import "experimental/iox"
+            
+            iox.sql(
+              bucket: "${bucket}",
+              query: "SELECT time, ${field} FROM measurement WHERE battery_id = '${battery_id}' AND station_id = '${station_id}' AND time >= now() - interval '${range}' ORDER BY time ASC"
+            )
         `;
 
         console.log('History Query:', fluxQuery);
 
         const dataPoints: Array<{ time: string; value: number }> = [];
 
-        // Wrap in promise to ensure we wait for completion
         await new Promise<void>((resolve, reject) => {
             queryApi.queryRows(fluxQuery, {
                 next(row: string[], tableMeta: any) {
                     const o = tableMeta.toObject(row);
-                    console.log('Found point:', o._time, '=', o._value);
-                    dataPoints.push({
-                        time: o._time,
-                        value: o._value
-                    });
+                    console.log('Found point:', o.time, '=', o[field]);
+                    if (o[field] !== null && o[field] !== undefined) {
+                        dataPoints.push({
+                            time: o.time,
+                            value: o[field]
+                        });
+                    }
                 },
                 error(error: Error) {
                     console.error('InfluxDB error:', error);

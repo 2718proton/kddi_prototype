@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { publishMessage } from "@/lib/iotClient";
 import { supabase } from "@/lib/supabaseClient";
 
+// Helper function to wait
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
@@ -26,21 +29,25 @@ export async function POST(request: NextRequest) {
             throw new Error(error.message);
         }
 
-        console.log(`[API] Requesting data for ${batteries?.length || 0} batteries`);
+        console.log(`[API] Requesting data for ${batteries?.length || 0} batteries with 1s delay`);
 
-        // Send request for each battery
-        const requests = (batteries || []).map(battery => 
-            publishMessage("battery/request", {
+        // Send requests sequentially with 1 second delay between each
+        for (const battery of batteries || []) {
+            console.log(`[API] Requesting battery ${battery.id}`);
+            await publishMessage("battery/request", {
                 battery_id: battery.id
-            })
-        );
-
-        await Promise.all(requests);
+            });
+            
+            // Wait 1 second before next request (except for the last one)
+            if (battery !== batteries[batteries.length - 1]) {
+                await wait(1000);
+            }
+        }
 
         return NextResponse.json({ 
             success: true,
             count: batteries?.length || 0,
-            message: `Data request sent for ${batteries?.length || 0} batteries`
+            message: `Data request sent for ${batteries?.length || 0} batteries (1s delay between each)`
         });
 
     } catch (error: any) {
