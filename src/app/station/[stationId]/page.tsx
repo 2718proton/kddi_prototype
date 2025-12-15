@@ -1,4 +1,7 @@
 // app/station/[stationId]/page.tsx
+"use client";
+
+import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import BatteryGraph from "@/components/BatteryGraph";
 
@@ -6,117 +9,183 @@ type Props = {
 	params: Promise<{ stationId: string }>;
 };
 
-async function getStationInfo(stationId: string) {
-	const { data, error } = await supabase
-		.from("stations")
-		.select("*")
-		.eq("id", stationId)
-		.single();
+export default function StationPage({ params }: Props) {
+	const [stationId, setStationId] = useState("");
+	const [station, setStation] = useState<any>(null);
+	const [batteries, setBatteries] = useState<any[]>([]);
+	const [batteriesData, setBatteriesData] = useState<any[]>([]);
+	const [requestingAll, setRequestingAll] = useState(false);
+	const [requestingIds, setRequestingIds] = useState<Set<number>>(new Set());
 
-	if (error) throw new Error(error.message);
-	return data;
-}
+	useEffect(() => {
+		params.then(p => {
+			setStationId(p.stationId);
+			loadData(p.stationId);
+		});
+	}, []);
 
-async function getBatteryUnits(stationId: string) {
-	const { data, error } = await supabase
-		.from("battery_units")
-		.select("*")
-		.eq("station_id", stationId)
-		.order("id", { ascending: true });
+	async function loadData(stationId: string) {
+		// Get station info
+		const { data: stationData } = await supabase
+			.from("stations")
+			.select("*")
+			.eq("id", stationId)
+			.single();
+		setStation(stationData);
 
-	if (error) throw new Error(error.message);
-	return data || [];
-}
+		// Get batteries
+		const { data: batteriesData } = await supabase
+			.from("battery_units")
+			.select("*")
+			.eq("station_id", stationId)
+			.order("id", { ascending: true });
+		setBatteries(batteriesData || []);
 
-async function getBatteryData(stationId: string, batteryId: string) {
-	try {
-		const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-		const res = await fetch(
-			`${baseUrl}/api/batteryData?station_id=${stationId}&battery_id=${batteryId}`,
-			{ cache: 'no-store' }
+		// Get battery data
+		const data = await Promise.all(
+			(batteriesData || []).map(async (b: any) => {
+				const res = await fetch(`/api/batteryData?station_id=${stationId}&battery_id=${b.id}`);
+				if (res.ok) return await res.json();
+				return null;
+			})
 		);
-		if (!res.ok) {
-			console.error('Battery data fetch failed:', res.status);
-			return null;
-		}
-		const json = await res.json();
-		console.log(`Battery ${batteryId} data:`, json);
-		return json;
-	} catch (error) {
-		console.error('Error fetching battery data:', error);
-		return null;
+		setBatteriesData(data);
 	}
-}
 
-export default async function StationPage({ params }: Props) {
-	const { stationId } = await params;
-	
-	const station = await getStationInfo(stationId);
-	const batteries = await getBatteryUnits(stationId);
-	
-	// Loop through batteries and get their data (using id as battery_id)
-	const batteriesData = await Promise.all(
-		batteries.map(b => getBatteryData(stationId, String(b.id)))
-	);
+	async function requestBattery(batteryId: number) {
+		setRequestingIds(prev => new Set(prev).add(batteryId));
+		try {
+			await fetch("/api/requestBattery", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ battery_id: batteryId }),
+			});
+		} catch (error) {
+			console.error("Request failed:", error);
+		}
+		setTimeout(() => {
+			setRequestingIds(prev => {
+				const next = new Set(prev);
+				next.delete(batteryId);
+				return next;
+			});
+		}, 2000);
+	}
 
-	console.log('Batteries:', batteries);
-	console.log('Batteries data:', batteriesData);
+	async function requestAll() {
+		setRequestingAll(true);
+		try {
+			await fetch("/api/requestAllBatteries", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ station_id: stationId }),
+			});
+		} catch (error) {
+			console.error("Request all failed:", error);
+		}
+		setTimeout(() => setRequestingAll(false), 2000);
+	}
+
+	if (!station) return <div className="p-4">Loading...</div>;
 
 	return (
-		<div className="p-4">
-			<h1 className="text-2xl font-bold mb-4">{station.name}</h1>
-			<p className="mb-6">Total Batteries: {batteries.length}</p>
-
-			<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-				{batteries.map((battery, i) => {
-					const data = batteriesData[i]?.data || {};
-					
-					console.log(`Rendering battery ${battery.id}, data:`, data);
-					
-					return (
-						<div key={battery.id} className="bg-white p-4 rounded shadow">
-							<h3 className="font-bold mb-2">{battery.name}</h3>
-							<p className="text-xs text-gray-500 mb-2">ID: {battery.id}</p>
-							{Object.keys(data).length > 0 ? (
-								<div>
-									{Object.entries(data).map(([field, value]) => (
-										<div key={field} className="flex justify-between py-1">
-											<span className="text-sm">{field}:</span>
-											<span className="font-semibold">
-												{typeof value === 'number' ? value.toFixed(2) : String(value)}
-											</span>
-										</div>
-									))}
-								</div>
-							) : (
-								<div>
-									<div className="flex justify-between py-1">
-										<span className="text-sm">temperature:</span>
-										<span className="font-semibold text-gray-400">NaN</span>
-									</div>
-									<div className="flex justify-between py-1">
-										<span className="text-sm">voltage:</span>
-										<span className="font-semibold text-gray-400">NaN</span>
-									</div>
-									<div className="flex justify-between py-1">
-										<span className="text-sm">resistance:</span>
-										<span className="font-semibold text-gray-400">NaN</span>
-									</div>
-								</div>
-							)}
-							
-							{/* Add Graph */}
-							<BatteryGraph 
-								stationId={stationId}
-								batteryId={String(battery.id)}
-								batteryName={battery.name}
-							/>
-						</div>
-					);
-				})}
+		<div className="p-4 max-w-7xl mx-auto">
+			{/* Header */}
+			<div className="mb-6 flex justify-between items-start">
+				<div>
+					<h1 className="text-3xl font-bold mb-2">{station.name}</h1>
+					<p className="text-gray-600">Station ID: {stationId}</p>
+					<p className="text-sm text-gray-500">
+						Location: {station.lat.toFixed(4)}, {station.lon.toFixed(4)}
+					</p>
+					<p className="text-sm text-gray-600 mt-2">
+						Total Batteries: {batteries.length}
+					</p>
+				</div>
+				<button
+					onClick={requestAll}
+					disabled={requestingAll}
+					className="px-4 py-2 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+				>
+					{requestingAll ? "Requesting..." : "Request All"}
+				</button>
 			</div>
 
-			<a href="/" className="mt-6 inline-block px-4 py-2 bg-gray-200 rounded">← Back</a>
+			{/* Batteries Grid */}
+			{batteries.length > 0 ? (
+				<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+					{batteries.map((battery, i) => {
+						const data = batteriesData[i]?.data || {};
+						const isRequesting = requestingIds.has(battery.id);
+
+						return (
+							<div key={battery.id} className="bg-white p-4 rounded shadow">
+								{/* Header */}
+								<div className="flex justify-between items-start mb-2">
+									<div>
+										<h3 className="font-bold">{battery.name}</h3>
+										<p className="text-xs text-gray-500">ID: {battery.id}</p>
+									</div>
+									<button
+										onClick={() => requestBattery(battery.id)}
+										disabled={isRequesting}
+										className="px-3 py-1 text-sm bg-blue-500 text-white rounded font-medium hover:bg-blue-600 disabled:bg-gray-400 transition-colors"
+									>
+										{isRequesting ? "..." : "Request"}
+									</button>
+								</div>
+
+								{/* Data */}
+								{Object.keys(data).length > 0 ? (
+									<div>
+										{Object.entries(data).map(([field, value]) => (
+											<div key={field} className="flex justify-between py-1">
+												<span className="text-sm">{field}:</span>
+												<span className="font-semibold">
+													{typeof value === 'number' ? value.toFixed(2) : String(value)}
+												</span>
+											</div>
+										))}
+									</div>
+								) : (
+									<div>
+										<div className="flex justify-between py-1">
+											<span className="text-sm">temperature:</span>
+											<span className="font-semibold text-gray-400">NaN</span>
+										</div>
+										<div className="flex justify-between py-1">
+											<span className="text-sm">voltage:</span>
+											<span className="font-semibold text-gray-400">NaN</span>
+										</div>
+										<div className="flex justify-between py-1">
+											<span className="text-sm">resistance:</span>
+											<span className="font-semibold text-gray-400">NaN</span>
+										</div>
+									</div>
+								)}
+
+								{/* Graph */}
+								<BatteryGraph
+									stationId={stationId}
+									batteryId={String(battery.id)}
+									batteryName={battery.name}
+								/>
+							</div>
+						);
+					})}
+				</div>
+			) : (
+				<div className="bg-white rounded-lg shadow p-6 text-center">
+					<p className="text-gray-500">No batteries found</p>
+				</div>
+			)}
+
+			{/* Back Button */}
+			<div className="mt-6">
+				<a href="/" className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition">
+					← Back to Map
+				</a>
+			</div>
 		</div>
 	);
 }
