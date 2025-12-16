@@ -3,6 +3,8 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* Force light mode color scheme */
+  color-scheme: light;
 }
 
 @theme inline {
@@ -12,12 +14,7 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* Removed dark mode media query to force light mode on all devices */
 
 body {
   background: var(--background);
