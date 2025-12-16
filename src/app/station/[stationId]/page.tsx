@@ -9,6 +9,13 @@ type Props = {
 	params: Promise<{ stationId: string }>;
 };
 
+// Thresholds for bad battery detection
+const THRESHOLDS = {
+	temperature: { min: 0, max: 45 }, // °C
+	voltage: { min: 10, max: 14 }, // V
+	resistance: { max: 100 }, // Ω (only checking for too high)
+};
+
 export default function StationPage({ params }: Props) {
 	const [stationId, setStationId] = useState("");
 	const [station, setStation] = useState<any>(null);
@@ -103,7 +110,7 @@ export default function StationPage({ params }: Props) {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ station_id: stationId }),
 			});
-			
+
 			// Wait 3 seconds for devices to respond, then reload ALL batteries
 			setTimeout(async () => {
 				const data = await Promise.all(
@@ -114,7 +121,7 @@ export default function StationPage({ params }: Props) {
 					})
 				);
 				setBatteriesData(data);
-				
+
 				// Update refresh keys for all graphs
 				const newKeys: Record<number, number> = {};
 				batteries.forEach(b => {
@@ -128,7 +135,53 @@ export default function StationPage({ params }: Props) {
 		setTimeout(() => setRequestingAll(false), 2000);
 	}
 
+	// Detect bad batteries based on thresholds
+	function detectBadBatteries() {
+		const badBatteries: Array<{
+			battery: any;
+			reasons: string[];
+		}> = [];
+
+		batteries.forEach((battery, i) => {
+			const data = batteriesData[i]?.data || {};
+			const reasons: string[] = [];
+
+			// Check temperature
+			if (data.temperature !== undefined && data.temperature !== null) {
+				if (data.temperature < THRESHOLDS.temperature.min) {
+					reasons.push(`Temperature too low (${data.temperature.toFixed(2)}°C < ${THRESHOLDS.temperature.min}°C)`);
+				} else if (data.temperature > THRESHOLDS.temperature.max) {
+					reasons.push(`Temperature too high (${data.temperature.toFixed(2)}°C > ${THRESHOLDS.temperature.max}°C)`);
+				}
+			}
+
+			// Check voltage
+			if (data.voltage !== undefined && data.voltage !== null) {
+				if (data.voltage < THRESHOLDS.voltage.min) {
+					reasons.push(`Voltage too low (${data.voltage.toFixed(2)}V < ${THRESHOLDS.voltage.min}V)`);
+				} else if (data.voltage > THRESHOLDS.voltage.max) {
+					reasons.push(`Voltage too high (${data.voltage.toFixed(2)}V > ${THRESHOLDS.voltage.max}V)`);
+				}
+			}
+
+			// Check resistance
+			if (data.resistance !== undefined && data.resistance !== null) {
+				if (data.resistance > THRESHOLDS.resistance.max) {
+					reasons.push(`Resistance too high (${data.resistance.toFixed(2)}Ω > ${THRESHOLDS.resistance.max}Ω)`);
+				}
+			}
+
+			if (reasons.length > 0) {
+				badBatteries.push({ battery, reasons });
+			}
+		});
+
+		return badBatteries;
+	}
+
 	if (!station) return <div className="p-4">Loading...</div>;
+
+	const badBatteries = detectBadBatteries();
 
 	return (
 		<div className="p-4 max-w-7xl mx-auto">
@@ -152,6 +205,30 @@ export default function StationPage({ params }: Props) {
 					{requestingAll ? "Requesting..." : "Request All"}
 				</button>
 			</div>
+
+			{/* Bad Batteries Alert */}
+			{badBatteries.length > 0 && (
+				<div className="mb-6 bg-red-50 border-2 border-red-300 rounded-lg p-4">
+					<h2 className="text-xl font-bold text-red-800 mb-3 flex items-center">
+						<span className="mr-2">⚠️</span>
+						Bad Batteries Detected ({badBatteries.length})
+					</h2>
+					<div className="space-y-3">
+						{badBatteries.map(({ battery, reasons }) => (
+							<div key={battery.id} className="bg-white rounded p-3 border border-red-200">
+								<div className="font-semibold text-red-900 mb-1">
+									{battery.name} <span className="text-xs text-gray-500">(ID: {battery.id})</span>
+								</div>
+								<ul className="list-disc list-inside text-sm text-red-700 space-y-1">
+									{reasons.map((reason, idx) => (
+										<li key={idx}>{reason}</li>
+									))}
+								</ul>
+							</div>
+						))}
+					</div>
+				</div>
+			)}
 
 			{/* Batteries Grid */}
 			{batteries.length > 0 ? (
