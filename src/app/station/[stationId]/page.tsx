@@ -11,7 +11,7 @@ type Props = {
 
 // Thresholds for bad battery detection
 const THRESHOLDS = {
-	temperature: { min: 0, max: 45 }, // °C
+	temperature: { min: 0, max: 30 }, // °C
 	voltage: { min: 10, max: 14 }, // V
 	resistance: { max: 100 }, // Ω (only checking for too high)
 };
@@ -210,7 +210,6 @@ export default function StationPage({ params }: Props) {
 			{badBatteries.length > 0 && (
 				<div className="mb-6 bg-red-50 border-2 border-red-300 rounded-lg p-4">
 					<h2 className="text-xl font-bold text-red-800 mb-3 flex items-center">
-						<span className="mr-2">⚠️</span>
 						Bad Batteries Detected ({badBatteries.length})
 					</h2>
 					<div className="space-y-3">
